@@ -1,29 +1,35 @@
-#include <Arduino.h>
-#include <U8g2lib.h>
-#include <Wire.h>
-#include <heltec_unofficial.h>
+#define HELTEC_POWER_BUTTON // must be before "#include <heltec_unofficial.h>"
 
-// Initialize the OLED display
-U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, /* clock=*/ 18, /* data=*/ 17, /* reset=*/ 21);
+#include <Arduino.h>
+#include <heltec_unofficial.h>
 
 void setup() {
   heltec_setup();
-  Serial.begin(115200);
+  // Serial.begin(115200);
 
-  delay(1000);  // Give the serial connection time to start
+  delay(1000); // Give the serial connection time to start
 
   // Initialize OLED
-  u8g2.begin();
-  u8g2.setFont(u8g2_font_ncenB08_tr);
+  // u8g2.begin();
+  // u8g2.setFont(u8g2_font_ncenB08_tr);
+
+  Serial.println("Serial works");
+  // Display
+  display.println("Display works");
+  // Radio
+  display.print("Radio ");
+  int state = radio.begin();
+  if (state == RADIOLIB_ERR_NONE) {
+    display.println("works");
+  } else {
+    display.printf("fail, code: %i\n", state);
+  }
+  // Battery
+  float vbat = heltec_vbat();
+  display.printf("Vbat: %.2fV (%d%%)\n", vbat, heltec_battery_percent(vbat));
 
   Serial.println("Heltec WiFi LoRa 32 V3 Serial and OLED Echo");
   Serial.println("Type something and press enter...");
-
-  // Display initial message on OLED
-  u8g2.clearBuffer();
-  u8g2.drawStr(0, 10, "Heltec WiFi LoRa 32");
-  u8g2.drawStr(0, 25, "Type in serial...");
-  u8g2.sendBuffer();
 }
 
 void loop() {
@@ -35,26 +41,23 @@ void loop() {
     Serial.println(input);
 
     // Display on OLED
-    u8g2.clearBuffer();
-    u8g2.drawStr(0, 10, "You typed:");
-    u8g2.drawStr(0, 25, input.c_str());
-    u8g2.sendBuffer();
+    display.println("You typed:");
 
     // Parse if it's a number and set the LED brightness
     if (input.length() > 0 && isdigit(input[0])) {
       int brightness = input.toInt();
-      
-      // Ensure the brightness is within the valid range (0-255)
-      brightness = constrain(brightness, 0, 255);
-      
+
+      // Ensure the brightness is within the valid range (0-100)
+      brightness = constrain(brightness, 0, 100);
+
       // Set LED brightness
       heltec_led(brightness);
-      
+
       // Display the set brightness on OLED
-      u8g2.drawStr(0, 40, ("LED: " + String(brightness)).c_str());
+      display.printf("LED: %d\n", brightness);
       Serial.println("LED brightness set to: " + String(brightness));
     } else {
-      u8g2.drawStr(0, 40, "Not a number");
+      display.println("Not a number");
       Serial.println("Input is not a number");
     }
   }
