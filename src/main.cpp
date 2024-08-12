@@ -1,6 +1,9 @@
 #define HELTEC_POWER_BUTTON // must be before "#include <heltec_unofficial.h>"
 
 #include <Arduino.h>
+#include <SparkFunBME280.h>
+#include <SparkFun_ENS160.h>
+#include <Wire.h>
 #include <heltec_unofficial.h>
 // https://github.com/ropg/heltec_esp32_lora_v3
 
@@ -18,13 +21,35 @@
 unsigned long lastDisplayUpdate = 0;
 const unsigned long displayUpdateInterval =
     30000; // Update display every 30 seconds
+unsigned long lastTransmitTime = 0;
+const unsigned long transmitInterval = 5000; // 5 seconds
+
+BME280 myBME;
+SparkFun_ENS160 myENS;
+
+String createSensorPacket() {
+  String packet = "";
+
+  // BME280 data
+  packet += "T:" + String(myBME.readTempC(), 1) + "C,";
+  packet += "P:" + String(myBME.readFloatPressure() / 100.0F, 1) + "hPa,";
+  packet += "H:" + String(myBME.readFloatHumidity(), 1) + "%,";
+
+  // ENS160 data
+  if (myENS.checkDataStatus()) {
+    packet += "AQI:" + String(myENS.getAQI()) + ",";
+    packet += "TVOC:" + String(myENS.getTVOC()) + "ppb,";
+    packet += "CO2:" + String(myENS.getECO2()) + "ppm";
+  } else {
+    packet += "ENS:NoData";
+  }
+
+  return packet;
+}
 
 void transmitterLoop() {
-  static unsigned long lastTransmitTime = 0;
-  const unsigned long transmitInterval = 5000; // 5 seconds
-
   if (millis() - lastTransmitTime > transmitInterval) {
-    String packet = "Packet #" + String(millis() / 1000);
+    String packet = createSensorPacket();
     Serial.print("Sending packet: ");
     Serial.println(packet);
 
@@ -34,7 +59,8 @@ void transmitterLoop() {
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
     display.drawString(0, 0, "Transmitting:");
-    display.drawString(0, 16, packet);
+    display.drawString(
+        0, 16, packet.substring(0, 20) + "..."); // Display first 20 chars
 
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println("Packet sent successfully!");
@@ -126,6 +152,61 @@ void setup() {
   RADIOLIB_OR_HALT(radio.setOutputPower(TX_POWER));
 
   Serial.println("LoRa initialized successfully!");
+
+  // Wire.begin();
+
+  Serial.println("I2C initialized");
+
+  // Scan for I2C devices
+  Serial.println("Scanning for I2C devices...");
+  byte error, address;
+  int nDevices = 0;
+  for (address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) {
+        Serial.print("0");
+      }
+      Serial.println(address, HEX);
+      nDevices++;
+    }
+  }
+  if (nDevices == 0) {
+    Serial.println("No I2C devices found");
+  } else {
+    Serial.println("I2C scan complete");
+  }
+
+  // Initialize BME280
+  if (myBME.beginI2C() == false) {
+    Serial.println("BME280 not detected. Please check wiring.");
+    while (1)
+      ;
+  } else {
+    Serial.println("BME280 initialized successfully");
+  }
+
+  // Initialize ENS160
+  if (!myENS.begin()) {
+    Serial.println("Could not communicate with the ENS160, check wiring.");
+    while (1)
+      ;
+  } else {
+    Serial.println("ENS160 initialized successfully");
+  }
+
+  Serial.println("Both sensors initialized successfully.");
+
+  // Reset the ENS160 sensor's settings
+  if (myENS.setOperatingMode(SFE_ENS160_RESET)) {
+    Serial.println("ENS160 reset complete.");
+  }
+  delay(100);
+
+  // Set ENS160 to standard operation
+  myENS.setOperatingMode(SFE_ENS160_STANDARD);
 
   // Display mode on OLED
   display.clear();
